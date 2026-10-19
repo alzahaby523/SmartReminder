@@ -19,9 +19,14 @@ object AlarmScheduler {
         // إذا كان الوقت قد فات (مثلاً الموعد بعد 10 دقائق والتنبيه قبل نصف ساعة) ينطلق خلال ثانية
         val at = fireAt.coerceAtLeast(System.currentTimeMillis() + 1_000L)
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
-        if (canExact) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
-        } else {
+        try {
+            if (canExact) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            } else {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            }
+        } catch (e: SecurityException) {
+            // سُحب إذن المنبهات الدقيقة: نرجع للمنبه غير الدقيق بدل أن يتعطل التطبيق
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         }
     }
@@ -45,7 +50,26 @@ class AlarmReceiver : BroadcastReceiver() {
         val id = intent.getLongExtra(EXTRA_ID, -1L)
         if (id == -1L) return
         val svc = Intent(context, ReminderService::class.java).putExtra(EXTRA_ID, id)
-        ContextCompat.startForegroundService(context, svc)
+        try {
+            ContextCompat.startForegroundService(context, svc)
+        } catch (e: Exception) {
+            // النظام منع تشغيل الخدمة (مثلاً المنبه لم يكن دقيقاً): نعرض إشعاراً عادياً بدل أن نفقد التذكير
+            showPlainNotification(context, id)
+        }
+    }
+}
+
+private fun showPlainNotification(context: Context, id: Long) {
+    val store = ReminderStore(context)
+    val r = store.get(id) ?: return
+    try {
+        Notifications.ensureChannel(context)
+        val rel = ArabicTime.relative(r.eventAt, System.currentTimeMillis())
+        NotificationManagerCompat.from(context)
+            .notify(Notifications.idFor(r.id), Notifications.build(context, r, rel))
+        store.upsert(r.copy(fired = true))
+    } catch (e: SecurityException) {
+        // إذن الإشعارات غير ممنوح
     }
 }
 

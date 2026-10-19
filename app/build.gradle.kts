@@ -6,19 +6,40 @@ plugins {
 
 android {
     namespace = "com.smartreminder.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.smartreminder.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
     }
 
+    // التوقيع يُقرأ من متغيرات بيئة البناء (لا يُحفظ أي مفتاح داخل المستودع)
+    val uploadKeystore: String? = System.getenv("UPLOAD_KEYSTORE_PATH")
+    signingConfigs {
+        if (uploadKeystore != null) {
+            create("release") {
+                storeFile = file(uploadKeystore)
+                storePassword = System.getenv("UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (uploadKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
