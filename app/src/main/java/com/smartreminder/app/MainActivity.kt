@@ -15,6 +15,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,32 +28,36 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +69,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,7 +79,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,7 +119,7 @@ fun AppRoot() {
         }
     }
 
-    // تحديث القائمة دورياً لتعكس التذكيرات التي تم تنبيهها
+    // تحديث القائمة دورياً لتعكس التذكيرات التي تم تنبيهها والوقت المتبقي
     LaunchedEffect(Unit) {
         while (true) {
             delay(3_000L)
@@ -177,6 +189,30 @@ fun AppRoot() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// شاشة القائمة
+// ---------------------------------------------------------------------------
+
+private fun startOfDay(ms: Long): Long {
+    val c = Calendar.getInstance()
+    c.timeInMillis = ms
+    c.set(Calendar.HOUR_OF_DAY, 0)
+    c.set(Calendar.MINUTE, 0)
+    c.set(Calendar.SECOND, 0)
+    c.set(Calendar.MILLISECOND, 0)
+    return c.timeInMillis
+}
+
+private fun dayLabel(ms: Long): String {
+    val diff = Math.round((startOfDay(ms) - startOfDay(System.currentTimeMillis())) / 86_400_000.0).toInt()
+    return when (diff) {
+        0 -> "اليوم"
+        1 -> "غداً"
+        -1 -> "أمس"
+        else -> SimpleDateFormat("EEEE d MMMM", Locale.forLanguageTag("ar-u-nu-latn")).format(Date(ms))
+    }
+}
+
 @Composable
 fun ListScreen(
     reminders: List<Reminder>,
@@ -187,54 +223,81 @@ fun ListScreen(
 ) {
     val now = System.currentTimeMillis()
     val (past, upcoming) = reminders.partition { it.eventAt < now }
+    val next = upcoming.firstOrNull()
+
+    // صفوف القائمة: نص = عنوان يوم، Reminder = عنصر
+    val rows = ArrayList<Any>()
+    var lastDay = ""
+    upcoming.drop(1).forEach {
+        val d = dayLabel(it.eventAt)
+        if (d != lastDay) {
+            rows.add(d)
+            lastDay = d
+        }
+        rows.add(it)
+    }
+    if (past.isNotEmpty()) {
+        rows.add("السابقة")
+        past.reversed().forEach { rows.add(it) }
+    }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("تذكير ذكي", fontWeight = FontWeight.Bold) },
-                actions = { TextButton(onClick = onTest) { Text("🔔 تجربة") } }
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            FloatingActionButton(
                 onClick = onAdd,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("تذكير جديد") }
-            )
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "تذكير جديد")
+            }
         }
     ) { padding ->
-        if (reminders.isEmpty()) {
-            Box(
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "لا توجد تذكيرات بعد.\nاضغط «تذكير جديد» لإضافة موعد أو عمل،\nأو جرّب «تجربة» لتسمع التنبيه الذكي.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("تذكير ذكي", fontSize = 24.sp, fontWeight = FontWeight.Medium)
+                OutlinedButton(
+                    onClick = onTest,
+                    shape = RoundedCornerShape(20.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("تجربة", fontSize = 13.sp)
+                }
             }
-        } else {
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = padding.calculateTopPadding() + 8.dp,
-                    bottom = padding.calculateBottomPadding() + 96.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 110.dp)
             ) {
-                if (upcoming.isNotEmpty()) {
-                    item { SectionTitle("القادمة") }
-                    items(upcoming, key = { it.id }) { ReminderCard(it, false, onEdit, onDelete) }
+                item {
+                    if (next != null) {
+                        HeroCard(next, now) { onEdit(next) }
+                    } else {
+                        EmptyHero(reminders.isEmpty())
+                    }
+                    Spacer(Modifier.height(18.dp))
                 }
-                if (past.isNotEmpty()) {
-                    item { SectionTitle("السابقة") }
-                    items(past.reversed(), key = { it.id }) { ReminderCard(it, true, onEdit, onDelete) }
+                items(rows) { row ->
+                    if (row is String) {
+                        Text(
+                            row,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+                        )
+                    } else if (row is Reminder) {
+                        TimelineItem(row, dim = row.eventAt < now, onEdit = onEdit, onDelete = onDelete)
+                    }
                 }
             }
         }
@@ -242,61 +305,121 @@ fun ListScreen(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
-    )
+private fun HeroCard(r: Reminder, now: Long, onClick: () -> Unit) {
+    val isAppointment = r.type == Reminder.TYPE_APPOINTMENT
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(Brush.linearGradient(listOf(HeroStart, HeroEnd)))
+            .clickable { onClick() }
+            .padding(20.dp)
+    ) {
+        Column {
+            Text("التالي", fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                ArabicTime.relative(r.eventAt, now),
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            Text(
+                if (isAppointment) "موعد مع ${r.title}" else r.title,
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.92f),
+                maxLines = 2
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HeroTag("الساعة " + Fmt.time(r.eventAt))
+                HeroTag(if (r.voice) "صوتي" else "صوري فقط")
+            }
+        }
+    }
 }
 
 @Composable
-private fun ReminderCard(
+private fun HeroTag(text: String) {
+    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(14.dp)) {
+        Text(
+            text,
+            fontSize = 12.sp,
+            color = Color.White,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+        )
+    }
+}
+
+@Composable
+private fun EmptyHero(noReminders: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(26.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            if (noReminders) "لا توجد تذكيرات بعد.\nاضغط + لإضافة موعد أو عمل،\nأو جرّب «تجربة» لتسمع التنبيه الذكي."
+            else "لا توجد تذكيرات قادمة",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun TimelineItem(
     r: Reminder,
     dim: Boolean,
     onEdit: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit
 ) {
     val isAppointment = r.type == Reminder.TYPE_APPOINTMENT
-    Card(
-        onClick = { onEdit(r) },
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (dim) 0.6f else 1f)
-    ) {
+    Column(modifier = Modifier.alpha(if (dim) 0.5f else 1f)) {
         Row(
-            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onEdit(r) }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.Top
         ) {
-            Text(if (isAppointment) "📅" else "✅", fontSize = 28.sp)
-            Spacer(Modifier.width(12.dp))
+            Text(
+                Fmt.time(r.eventAt),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.width(60.dp)
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (isAppointment) "موعد مع ${r.title}" else r.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2
-                )
-                Text(
-                    text = Fmt.dateTime(r.eventAt),
-                    style = MaterialTheme.typography.bodyMedium,
+                    if (isAppointment) "موعد" else "عمل",
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(r.title, fontSize = 16.sp, maxLines = 2)
                 Text(
-                    text = Fmt.leadLabel(r.leadMin) + "  ·  " + if (r.voice) "🔊 صوتي" else "👁 صوري فقط",
-                    style = MaterialTheme.typography.bodySmall,
+                    (if (r.voice) "صوتي" else "صوري فقط") + " · " + Fmt.leadLabel(r.leadMin),
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
             IconButton(onClick = { onDelete(r) }) {
-                Icon(Icons.Default.Delete, contentDescription = "حذف")
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "حذف",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
+
+// ---------------------------------------------------------------------------
+// شاشة الإضافة / التعديل
+// ---------------------------------------------------------------------------
 
 private fun defaultEventTime(): Long {
     val c = Calendar.getInstance()
@@ -306,6 +429,50 @@ private fun defaultEventTime(): Long {
     val m = c.get(Calendar.MINUTE)
     c.add(Calendar.MINUTE, (5 - m % 5) % 5)
     return c.timeInMillis
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+/** مفتاح اختيار من عدة خيارات (مثل: موعد / عمل، صوتي / صوري فقط). */
+@Composable
+private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        options.forEachIndexed { i, label ->
+            val sel = i == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (sel) MaterialTheme.colorScheme.surface else Color.Transparent)
+                    .clickable { onSelect(i) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    label,
+                    fontSize = 14.sp,
+                    fontWeight = if (sel) FontWeight.Medium else FontWeight.Normal,
+                    color = if (sel) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -371,15 +538,37 @@ fun EditorScreen(initial: Reminder?, onClose: () -> Unit, onSave: (Reminder) -> 
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text(if (initial == null) "تذكير جديد" else "تعديل التذكير") },
-                navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
-                    }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
                 }
-            )
+                Text(
+                    if (initial == null) "تذكير جديد" else "تعديل التذكير",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        },
+        bottomBar = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Button(
+                    onClick = { trySave() },
+                    shape = RoundedCornerShape(27.dp),
+                    modifier = Modifier.fillMaxWidth().height(54.dp)
+                ) {
+                    Text("حفظ التذكير", fontSize = 16.sp)
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -387,104 +576,102 @@ fun EditorScreen(initial: Reminder?, onClose: () -> Unit, onSave: (Reminder) -> 
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            Text("نوع التذكير", fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = type == Reminder.TYPE_APPOINTMENT,
-                    onClick = { type = Reminder.TYPE_APPOINTMENT },
-                    label = { Text("📅 موعد") }
-                )
-                FilterChip(
-                    selected = type == Reminder.TYPE_TASK,
-                    onClick = { type = Reminder.TYPE_TASK },
-                    label = { Text("✅ عمل") }
-                )
-            }
-
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = {
-                    Text(
-                        if (type == Reminder.TYPE_APPOINTMENT) "مع من؟ (شخص أو شركة)"
-                        else "ما هو العمل؟"
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
+            Segmented(
+                options = listOf("موعد", "عمل"),
+                selected = type,
+                onSelect = { type = it }
             )
 
-            Text("وقت الموعد", fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { pickDate() }, modifier = Modifier.weight(1f)) {
-                    Text("📆 " + Fmt.dateShort(eventAt))
-                }
-                OutlinedButton(onClick = { pickTime() }, modifier = Modifier.weight(1f)) {
-                    Text("🕒 " + Fmt.time(eventAt))
-                }
-            }
-
-            Text("متى أنبّهك؟", fontWeight = FontWeight.Bold)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                LEAD_OPTIONS.forEach { option ->
-                    FilterChip(
-                        selected = lead == option,
-                        onClick = { lead = option },
-                        label = { Text(Fmt.leadLabel(option)) }
-                    )
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+            Column {
+                SectionLabel(if (type == Reminder.TYPE_APPOINTMENT) "مع من؟" else "ما هو العمل؟")
+                TextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    placeholder = {
+                        Text(if (type == Reminder.TYPE_APPOINTMENT) "شخص أو شركة" else "مثال: مراجعة التقرير")
+                    },
+                    textStyle = MaterialTheme.typography.titleLarge,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                if (voice) "🔊 تنبيه صوتي" else "👁 صوري فقط",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionLabel("وقت الموعد")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { pickDate() },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) { Text(Fmt.dateShort(eventAt), fontSize = 14.sp) }
+                    OutlinedButton(
+                        onClick = { pickTime() },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) { Text(Fmt.time(eventAt), fontSize = 14.sp) }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionLabel("متى أنبّهك؟")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    LEAD_OPTIONS.forEach { option ->
+                        FilterChip(
+                            selected = lead == option,
+                            onClick = { lead = option },
+                            label = { Text(Fmt.leadLabel(option)) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                             )
-                            Text(
-                                if (voice)
-                                    "الهاتف مفتوح: إشعار منبثق.\nالهاتف مقفل: جرس مرتين ثم يُنطق التذكير."
-                                else
-                                    "إشعار منبثق واهتزاز فقط، بدون جرس أو صوت.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(checked = voice, onCheckedChange = { voice = it })
-                    }
-                    if (voice && title.isNotBlank()) {
-                        val rel = if (lead <= 0) "الآن" else "بعد " + ArabicTime.duration(lead.toLong())
-                        val preview = Reminder(0L, title.trim(), type, eventAt, lead, true)
-                        Text(
-                            "سيُقال: «" + Speech.spoken(preview, rel) + "»",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
-            Button(
-                onClick = { trySave() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text("حفظ التذكير", fontSize = 16.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionLabel("أسلوب التنبيه")
+                Segmented(
+                    options = listOf("صوتي", "صوري فقط"),
+                    selected = if (voice) 0 else 1,
+                    onSelect = { voice = it == 0 }
+                )
+                Text(
+                    if (voice)
+                        "الهاتف مفتوح: إشعار منبثق.\nالهاتف مقفل: جرس مرتين ثم يُنطق التذكير."
+                    else
+                        "إشعار منبثق واهتزاز فقط، بدون جرس أو صوت.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (voice && title.isNotBlank()) {
+                    val rel = if (lead <= 0) "الآن" else "بعد " + ArabicTime.duration(lead.toLong())
+                    val preview = Reminder(0L, title.trim(), type, eventAt, lead, true)
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            "«" + Speech.spoken(preview, rel) + "»",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.fillMaxWidth().padding(14.dp)
+                        )
+                    }
+                }
             }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
