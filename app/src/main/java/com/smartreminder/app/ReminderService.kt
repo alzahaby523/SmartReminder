@@ -105,7 +105,7 @@ class ReminderService : Service() {
         val mp = MediaPlayer()
         player = mp
         try {
-            mp.setAudioAttributes(alarmAttrs(AudioAttributes.CONTENT_TYPE_SONIC))
+            mp.setAudioAttributes(alarmAttrs(AudioAttributes.CONTENT_TYPE_SONIFICATION))
             resources.openRawResourceFd(R.raw.bell).use { afd ->
                 mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
             }
@@ -161,7 +161,7 @@ class ReminderService : Service() {
     private fun requestAudioFocus() {
         val am = getSystemService(AudioManager::class.java)
         val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(alarmAttrs(AudioAttributes.CONTENT_TYPE_SONIC))
+            .setAudioAttributes(alarmAttrs(AudioAttributes.CONTENT_TYPE_SONIFICATION))
             .build()
         am.requestAudioFocus(req)
         focusRequest = req
